@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { getCurrentPlace } from './api/location';
 import { fetchWeather } from './api/openMeteo';
 import CurrentWeather from './components/CurrentWeather';
 import ForecastList from './components/ForecastList';
@@ -22,12 +23,32 @@ const DEFAULT_PLACE: Place = {
 };
 
 export default function App() {
-  const [city, setCity] = useState<Place>(DEFAULT_PLACE);
+  const [city, setCity] = useState<Place | null>(null);
+  const [locating, setLocating] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
+
   const [weather, setWeather] = useState<Weather | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const detectLocation = useCallback(async () => {
+    setLocating(true);
+    setNotice(null);
+
+    try {
+      setCity(await getCurrentPlace());
+    } catch (e) {
+      setNotice(e instanceof Error ? e.message : 'Gagal mendapatkan lokasi.');
+      // Kalau belum ada kota sama sekali, pakai Jakarta. Kalau sudah ada, biarkan.
+      setCity((current) => current ?? DEFAULT_PLACE);
+    } finally {
+      setLocating(false);
+    }
+  }, []);
+
   const loadWeather = useCallback(async () => {
+    if (city === null) return;
+
     setLoading(true);
     setError(null);
 
@@ -41,18 +62,37 @@ export default function App() {
     }
   }, [city]);
 
+  // Saat aplikasi dibuka: cari lokasi
+  useEffect(() => {
+    detectLocation();
+  }, [detectLocation]);
+
+  // Setiap kota berubah: ambil cuaca
   useEffect(() => {
     loadWeather();
   }, [loadWeather]);
 
+  const handleSelectCity = (place: Place) => {
+    setNotice(null);
+    setCity(place);
+  };
+
   return (
     <View style={styles.container}>
-      <SearchBar onSelect={setCity} />
+      <SearchBar
+        onSelect={handleSelectCity}
+        onUseLocation={detectLocation}
+        locating={locating}
+      />
 
-      {loading ? (
+      {notice !== null && <Text style={styles.notice}>{notice}</Text>}
+
+      {loading || city === null ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.message}>Memuat cuaca...</Text>
+          <Text style={styles.message}>
+            {locating ? 'Mencari lokasimu...' : 'Memuat cuaca...'}
+          </Text>
         </View>
       ) : error !== null || weather === null ? (
         <View style={styles.centered}>
@@ -80,6 +120,12 @@ const styles = StyleSheet.create({
     backgroundColor: '#1e3a8a',
     paddingTop: 70,
     paddingHorizontal: 20,
+  },
+  notice: {
+    color: '#fde68a',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 12,
   },
   centered: {
     flex: 1,

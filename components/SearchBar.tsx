@@ -14,9 +14,11 @@ import { placeLabel } from '../utils/weather';
 
 type Props = {
   onSelect: (place: Place) => void;
+  onUseLocation: () => void;
+  locating: boolean;
 };
 
-export default function SearchBar({ onSelect }: Props) {
+export default function SearchBar({ onSelect, onUseLocation, locating }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Place[]>([]);
   const [searching, setSearching] = useState(false);
@@ -68,6 +70,13 @@ export default function SearchBar({ onSelect }: Props) {
         />
         <Pressable style={styles.button} onPress={handleSearch}>
           <Text style={styles.buttonText}>Cari</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.locationButton, locating && styles.locationButtonDisabled]}
+          onPress={onUseLocation}
+          disabled={locating}
+        >
+          <Text style={styles.locationIcon}>📍</Text>
         </Pressable>
       </View>
 
@@ -129,5 +138,18 @@ const styles = StyleSheet.create({
   resultText: {
     color: '#fff',
     fontSize: 15,
+  },
+  locationButton: {
+    width: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  locationButtonDisabled: {
+    opacity: 0.4,
+  },
+  locationIcon: {
+    fontSize: 18,
   },
 });
