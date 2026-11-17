@@ -3,6 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -12,7 +14,9 @@ import { fetchWeather } from './api/openMeteo';
 import CurrentWeather from './components/CurrentWeather';
 import ForecastList from './components/ForecastList';
 import SearchBar from './components/SearchBar';
-import { Place, Weather } from './types';
+import { loadSnapshot, saveSnapshot } from './storage/lastWeather';
+import { Place, WeatherSnapshot } from './types';
+import { formatTime } from './utils/weather';
 
 const DEFAULT_PLACE: Place = {
   id: 0,
@@ -22,91 +26,166 @@ const DEFAULT_PLACE: Place = {
   longitude: 106.8,
 };
 
+type LoadMode = 'full' | 'silent';
+
 export default function App() {
   const [city, setCity] = useState<Place | null>(null);
+  const [snapshot, setSnapshot] = useState<WeatherSnapshot | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [locating, setLocating] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [weather, setWeather] = useState<Weather | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const detectLocation = useCallback(async () => {
-    setLocating(true);
+  // Mengembalikan lokasi HP, atau null (dengan pesan di notice) kalau gagal
+  const detectLocation = useCallback(async (): Promise<Place | null> => {
     setNotice(null);
-
     try {
-      setCity(await getCurrentPlace());
+      return await getCurrentPlace();
     } catch (e) {
       setNotice(e instanceof Error ? e.message : 'Gagal mendapatkan lokasi.');
-      // Kalau belum ada kota sama sekali, pakai Jakarta. Kalau sudah ada, biarkan.
-      setCity((current) => current ?? DEFAULT_PLACE);
-    } finally {
-      setLocating(false);
+      return null;
     }
   }, []);
 
-  const loadWeather = useCallback(async () => {
-    if (city === null) return;
-
-    setLoading(true);
-    setError(null);
+  // 'full'   : tampilkan layar loading, error tampil sebagai layar error
+  // 'silent' : data lama tetap tampil, error tampil sebagai pesan kecil
+  const loadWeather = useCallback(async (place: Place, mode: LoadMode) => {
+    if (mode === 'full') {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
-      setWeather(await fetchWeather(city));
+      const weather = await fetchWeather(place);
+      const fresh: WeatherSnapshot = { place, weather, updatedAt: Date.now() };
+      setSnapshot(fresh);
+      setError(null);
+      saveSnapshot(fresh);
     } catch (e) {
       console.warn('Gagal memuat cuaca', e);
-      setError('Gagal memuat cuaca. Periksa koneksi internetmu lalu coba lagi.');
+      if (mode === 'full') {
+        setError('Gagal memuat cuaca. Periksa koneksi internetmu lalu coba lagi.');
+      } else {
+        setNotice('Gagal memperbarui cuaca. Menampilkan data terakhir.');
+      }
     } finally {
       setLoading(false);
     }
-  }, [city]);
+  }, []);
 
-  // Saat aplikasi dibuka: cari lokasi
+  // Saat aplikasi dibuka
   useEffect(() => {
-    detectLocation();
-  }, [detectLocation]);
+    const init = async () => {
+      // 1. Tampilkan data terakhir secepat mungkin
+      const cached = await loadSnapshot();
+      if (cached !== null) {
+        setSnapshot(cached);
+        setLoading(false);
+      }
 
-  // Setiap kota berubah: ambil cuaca
-  useEffect(() => {
-    loadWeather();
-  }, [loadWeather]);
+      // 2. Tentukan kota: kota hasil pencarian terakhir dipertahankan,
+      //    lokasi GPS (id -1) atau belum ada data dideteksi ulang
+      let place = cached?.place ?? null;
+      if (place === null || place.id === -1) {
+        place = (await detectLocation()) ?? place ?? DEFAULT_PLACE;
+      }
+      setLocating(false);
+      setCity(place);
+
+      // 3. Ambil cuaca terbaru
+      await loadWeather(place, cached !== null ? 'silent' : 'full');
+    };
+
+    init();
+  }, [detectLocation, loadWeather]);
 
   const handleSelectCity = (place: Place) => {
     setNotice(null);
     setCity(place);
+    loadWeather(place, 'full');
+  };
+
+  const handleUseLocation = async () => {
+    setLocating(true);
+    const place = await detectLocation();
+    setLocating(false);
+
+    if (place !== null) {
+      setCity(place);
+      await loadWeather(place, 'full');
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    setNotice(null);
+
+    let place = city ?? DEFAULT_PLACE;
+
+    // Kalau sedang memakai lokasi GPS, cek lagi posisinya (siapa tahu pindah)
+    if (place.id === -1) {
+      const fresh = await detectLocation();
+      if (fresh !== null) {
+        place = fresh;
+        setCity(fresh);
+      }
+    }
+
+    await loadWeather(place, 'silent');
+    setRefreshing(false);
   };
 
   return (
     <View style={styles.container}>
       <SearchBar
         onSelect={handleSelectCity}
-        onUseLocation={detectLocation}
+        onUseLocation={handleUseLocation}
         locating={locating}
       />
 
       {notice !== null && <Text style={styles.notice}>{notice}</Text>}
 
-      {loading || city === null ? (
+      {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color="#fff" />
           <Text style={styles.message}>
             {locating ? 'Mencari lokasimu...' : 'Memuat cuaca...'}
           </Text>
         </View>
-      ) : error !== null || weather === null ? (
+      ) : error !== null || snapshot === null ? (
         <View style={styles.centered}>
           <Text style={styles.errorTitle}>Oops!</Text>
           <Text style={styles.message}>{error ?? 'Data tidak tersedia.'}</Text>
-          <Pressable style={styles.retryButton} onPress={loadWeather}>
+          <Pressable
+            style={styles.retryButton}
+            onPress={() => loadWeather(city ?? DEFAULT_PLACE, 'full')}
+          >
             <Text style={styles.retryText}>Coba lagi</Text>
           </Pressable>
         </View>
       ) : (
-        <View style={styles.weatherBody}>
-          <CurrentWeather cityName={city.name} weather={weather} />
-          <ForecastList daily={weather.daily} />
-        </View>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor="#fff"
+              colors={['#1e3a8a']}
+            />
+          }
+        >
+          <CurrentWeather
+            cityName={snapshot.place.name}
+            weather={snapshot.weather}
+          />
+          <ForecastList daily={snapshot.weather.daily} />
+          <Text style={styles.updated}>
+            Diperbarui {formatTime(snapshot.updatedAt)}
+          </Text>
+        </ScrollView>
       )}
 
       <StatusBar style="light" />
@@ -133,9 +212,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
-  weatherBody: {
+  scroll: {
     flex: 1,
+  },
+  scrollContent: {
     paddingTop: 30,
+    paddingBottom: 40,
+  },
+  updated: {
+    color: '#93c5fd',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 24,
   },
   message: {
     color: '#bfdbfe',

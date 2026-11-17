@@ -37,3 +37,10 @@ export function dayLabel(date: string, index: number): string {
 export function placeLabel(place: Place): string {
   return [place.name, place.admin1, place.country].filter(Boolean).join(', ');
 }
+
+export function formatTime(timestamp: number): string {
+  const date = new Date(timestamp);
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${hours}:${minutes}`;
+}

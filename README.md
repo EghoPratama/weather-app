@@ -6,6 +6,8 @@ Aplikasi cuaca yang dibuat dengan React Native, Expo, dan TypeScript. Cuaca otom
 
 - Cuaca otomatis sesuai lokasi GPS saat aplikasi dibuka, dan tombol 📍 untuk kembali ke lokasi sekarang
 - Fallback ke Jakarta dengan pesan yang jelas jika izin lokasi ditolak atau GPS mati
+- Data cuaca terakhir tersimpan di perangkat: langsung tampil saat aplikasi dibuka (bahkan offline), lalu diperbarui di belakang layar
+- Tarik layar ke bawah (pull to refresh) untuk memperbarui, lengkap dengan keterangan waktu pembaruan terakhir
 - Cuaca saat ini: suhu, kondisi, kelembapan, dan kecepatan angin
 - Prakiraan 7 hari dengan suhu tertinggi dan terendah
 - Cari kota lewat nama (geocoding), dengan daftar kandidat yang menampilkan provinsi dan negara
@@ -17,17 +19,20 @@ Aplikasi cuaca yang dibuat dengan React Native, Expo, dan TypeScript. Cuaca otom
 - [React Native](https://reactnative.dev/) dengan [Expo](https://expo.dev/)
 - TypeScript
 - [expo-location](https://docs.expo.dev/versions/latest/sdk/location/) untuk izin dan pembacaan lokasi GPS
+- [@react-native-async-storage/async-storage](https://github.com/react-native-async-storage/async-storage) untuk menyimpan data cuaca terakhir
 - [Open-Meteo Forecast API](https://open-meteo.com/en/docs) dan [Geocoding API](https://open-meteo.com/en/docs/geocoding-api)
 
 ## Struktur Proyek
 
 ```
 weather-app/
-├── App.tsx                  # State utama (kota, cuaca, loading, error)
-├── types.ts                 # Tipe Place, Weather, DayForecast
+├── App.tsx                  # Alur pemuatan data, pull to refresh, loading, error
+├── types.ts                 # Tipe Place, Weather, DayForecast, WeatherSnapshot
 ├── api/
 │   ├── location.ts          # getCurrentPlace(): izin, GPS, reverse geocoding
 │   └── openMeteo.ts         # fetchWeather() dan searchPlaces()
+├── storage/
+│   └── lastWeather.ts       # saveSnapshot() dan loadSnapshot() (AsyncStorage)
 ├── utils/
 │   └── weather.ts           # Kode cuaca -> teks/ikon, label hari dan kota
 └── components/
@@ -63,7 +68,10 @@ Scan QR code yang muncul di terminal dengan Expo Go (Android) atau aplikasi Kame
 - Memeriksa `response.ok` karena `fetch` tidak melempar error untuk status 404/500
 - Memakai dua API berantai (geocoding lalu forecast)
 - Meminta izin perangkat (lokasi) dan menangani jalur "ditolak" dengan fallback yang jelas
-- Merangkai beberapa `useEffect` (lokasi berubah, lalu cuaca otomatis dimuat ulang)
+- Menyimpan dan membaca data lokal dengan AsyncStorage, termasuk kunci berversi agar data lama tidak merusak aplikasi
+- Pola stale-while-revalidate: tampilkan data lama dulu, perbarui di belakang layar
+- Membedakan mode pemuatan penuh (spinner) dan senyap (data lama tetap tampil jika gagal)
+- Mengimplementasikan pull to refresh dengan `ScrollView` dan `RefreshControl`
 - Mengubah data API (array sejajar) menjadi bentuk yang nyaman dipakai di UI
 - Menggunakan `useEffect` dan `useCallback` agar data dimuat ulang saat kota berganti
 - Memisahkan lapisan API, fungsi bantu, dan komponen agar kode mudah dirawat
@@ -71,10 +79,11 @@ Scan QR code yang muncul di terminal dengan Expo Go (Android) atau aplikasi Kame
 ## Rencana Pengembangan
 
 - [x] Cuaca berdasarkan lokasi GPS (`expo-location`)
-- [ ] Menyimpan kota terakhir dan daftar kota favorit (AsyncStorage)
+- [x] Menyimpan data cuaca dan kota terakhir (AsyncStorage)
+- [ ] Daftar kota favorit
 - [ ] Prakiraan per jam
 - [ ] Pilihan satuan suhu (°C / °F)
-- [ ] Tarik layar untuk menyegarkan (pull to refresh)
+- [x] Tarik layar untuk menyegarkan (pull to refresh)
 - [ ] Membatalkan permintaan lama dengan `AbortController`
 
 ## Kredit

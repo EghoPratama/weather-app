@@ -21,3 +21,9 @@ export type Weather = {
   code: number;
   daily: DayForecast[];
 };
+
+export type WeatherSnapshot = {
+  place: Place;
+  weather: Weather;
+  updatedAt: number; // timestamp (ms)
+};
